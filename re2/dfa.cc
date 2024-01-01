@@ -62,6 +62,10 @@ void Prog::TESTING_ONLY_set_dfa_should_bail_when_slow(bool b) {
   dfa_should_bail_when_slow = b;
 }
 
+void test_match_callback(const char *eom_pos, bool run_forward) {
+  fprintf(stderr, "eom_pos = %p, run_forward = %b\n", eom_pos, run_forward);
+}
+
 // Changing this to true compiles in prints that trace execution of the DFA.
 // Generates a lot of output -- only useful for debugging.
 static const bool ExtraDebug = false;
@@ -244,7 +248,8 @@ class DFA {
         cache_lock(cache_lock),
         failed(false),
         ep(NULL),
-        matches(NULL) {}
+        matches(NULL),
+        eom_callback(test_match_callback) {}
 
     absl::string_view text;
     absl::string_view context;
@@ -257,6 +262,8 @@ class DFA {
     bool failed;     // "out" parameter: whether search gave up
     const char* ep;  // "out" parameter: end pointer for match
     SparseSet* matches;
+    absl::optional<std::function<void(const char *eom_pos, bool run_forward)>>
+        eom_callback;
 
    private:
     SearchParams(const SearchParams&) = delete;
@@ -1377,6 +1384,8 @@ inline bool DFA::InlinedSearchLoop(SearchParams* params) {
     }
     if (want_earliest_match) {
       params->ep = reinterpret_cast<const char*>(lastmatch);
+      if (params->eom_callback)
+        (*params->eom_callback)(params->ep, run_forward);
       return true;
     }
   }
@@ -1466,10 +1475,14 @@ inline bool DFA::InlinedSearchLoop(SearchParams* params) {
     if (ns <= SpecialStateMax) {
       if (ns == DeadState) {
         params->ep = reinterpret_cast<const char*>(lastmatch);
+        if (matched && params->eom_callback)
+          (*params->eom_callback)(params->ep, run_forward);
         return matched;
       }
       // FullMatchState
       params->ep = reinterpret_cast<const char*>(ep);
+      if (params->eom_callback)
+        (*params->eom_callback)(params->ep, run_forward);
       return true;
     }
 
@@ -1494,6 +1507,8 @@ inline bool DFA::InlinedSearchLoop(SearchParams* params) {
       }
       if (want_earliest_match) {
         params->ep = reinterpret_cast<const char*>(lastmatch);
+        if (params->eom_callback)
+          (*params->eom_callback)(params->ep, run_forward);
         return true;
       }
     }
@@ -1538,10 +1553,13 @@ inline bool DFA::InlinedSearchLoop(SearchParams* params) {
   if (ns <= SpecialStateMax) {
     if (ns == DeadState) {
       params->ep = reinterpret_cast<const char*>(lastmatch);
+      if (matched && params->eom_callback)
+        (*params->eom_callback)(params->ep, run_forward);
       return matched;
     }
     // FullMatchState
     params->ep = reinterpret_cast<const char*>(ep);
+    if (params->eom_callback) (*params->eom_callback)(params->ep, run_forward);
     return true;
   }
 
@@ -1562,6 +1580,8 @@ inline bool DFA::InlinedSearchLoop(SearchParams* params) {
   }
 
   params->ep = reinterpret_cast<const char*>(lastmatch);
+  if (matched && params->eom_callback)
+    (*params->eom_callback)(params->ep, run_forward);
   return matched;
 }
 
