@@ -1005,7 +1005,8 @@ bool RE2::MatchCallback(
           break;
         }
         if (!prog->SearchDFA(subtext, text, Prog::kAnchored,
-                             Prog::kLongestMatch, matchp, &dfa_failed, NULL)) {
+                             Prog::kLongestMatch, matchp, &dfa_failed, NULL,
+                             eom_callback, som_callback)) {
           if (dfa_failed) {
             if (options_.log_errors())
               LOG(ERROR) << "DFA out of memory: "
@@ -1025,7 +1026,8 @@ bool RE2::MatchCallback(
       }
 
       if (!prog_->SearchDFA(subtext, text, anchor, kind,
-                            matchp, &dfa_failed, NULL)) {
+                            matchp, &dfa_failed, NULL,
+                            eom_callback, som_callback)) {
         if (dfa_failed) {
           if (options_.log_errors())
             LOG(ERROR) << "DFA out of memory: "
@@ -1051,7 +1053,8 @@ bool RE2::MatchCallback(
         break;
       }
       if (!prog->SearchDFA(match, text, Prog::kAnchored,
-                           Prog::kLongestMatch, &match, &dfa_failed, NULL)) {
+                           Prog::kLongestMatch, &match, &dfa_failed, NULL,
+                           eom_callback, som_callback)) {
         if (dfa_failed) {
           if (options_.log_errors())
             LOG(ERROR) << "DFA out of memory: "
@@ -1094,7 +1097,8 @@ bool RE2::MatchCallback(
         break;
       }
       if (!prog_->SearchDFA(subtext, text, anchor, kind,
-                            &match, &dfa_failed, NULL)) {
+                            &match, &dfa_failed, NULL,
+                            eom_callback, som_callback)) {
         if (dfa_failed) {
           if (options_.log_errors())
             LOG(ERROR) << "DFA out of memory: "

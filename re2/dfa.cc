@@ -1379,13 +1379,13 @@ DFA::State* DFA::StateSaver::Restore() {
 template <>
 inline void DFA::SearchParams::register_match_inline<true>() {
   if (eom_callback)
-    (*eom_callback)(ep);
+    (*eom_callback)(ep - text.data());
 }
 
 template <>
 inline void DFA::SearchParams::register_match_inline<false>() {
   if (som_callback)
-    (*som_callback)(ep);
+    (*som_callback)(ep - text.data());
 }
 
 

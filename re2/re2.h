@@ -227,8 +227,8 @@
 namespace re2 {
 class Prog;
 class Regexp;
-using EOMCallback = absl::optional<std::function<void(const char*)>>;
-using SOMCallback = absl::optional<std::function<void(const char*)>>;
+using EOMCallback = absl::optional<std::function<void(size_t)>>;
+using SOMCallback = absl::optional<std::function<void(size_t)>>;
 }  // namespace re2
 
 namespace re2 {
