@@ -227,6 +227,8 @@
 namespace re2 {
 class Prog;
 class Regexp;
+using EOMCallback = absl::optional<std::function<void(const char*)>>;
+using SOMCallback = absl::optional<std::function<void(const char*)>>;
 }  // namespace re2
 
 namespace re2 {
@@ -592,8 +594,8 @@ class RE2 {
                      size_t startpos,
                      size_t endpos,
                      Anchor re_anchor,
-                     absl::optional<std::function<void(const char*)>> eom_callback,
-                     absl::optional<std::function<void(const char*)>> som_callback) const;
+                     EOMCallback eom_callback,
+                     SOMCallback som_callback) const;
 
   // Check that the given rewrite string is suitable for use with this
   // regular expression.  It checks that:

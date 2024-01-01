@@ -910,8 +910,8 @@ bool RE2::MatchCallback(
   size_t startpos,
   size_t endpos,
   Anchor re_anchor,
-  absl::optional<std::function<void(const char*)>> eom_callback,
-  absl::optional<std::function<void(const char*)>> som_callback) const {
+  EOMCallback eom_callback,
+  SOMCallback som_callback) const {
   if (!ok()) {
     if (options_.log_errors())
       LOG(ERROR) << "Invalid RE2: " << *error_;

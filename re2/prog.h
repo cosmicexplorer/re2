@@ -52,6 +52,9 @@ enum EmptyOp {
 class DFA;
 class Regexp;
 
+using EOMCallback = absl::optional<std::function<void(const char*)>>;
+using SOMCallback = absl::optional<std::function<void(const char*)>>;
+
 // Compiled form of regexp program.
 class Prog {
  public:
@@ -294,15 +297,13 @@ class Prog {
                  Anchor anchor, MatchKind kind, absl::string_view* match0,
                  bool* failed, SparseSet* matches) {
     return SearchDFA(text, context, anchor, kind, match0, failed, matches,
-                     absl::optional<std::function<void(const char*)>>(),
-                     absl::optional<std::function<void(const char*)>>());
+                     EOMCallback(), SOMCallback());
   }
 
   bool SearchDFA(absl::string_view text, absl::string_view context,
                  Anchor anchor, MatchKind kind, absl::string_view* match0,
                  bool* failed, SparseSet* matches,
-                 absl::optional<std::function<void(const char*)>> eom_callback,
-                 absl::optional<std::function<void(const char*)>> som_callback);
+                 EOMCallback eom_callback, SOMCallback som_callback);
 
   // The callback issued after building each DFA state with BuildEntireDFA().
   // If next is null, then the memory budget has been exhausted and building

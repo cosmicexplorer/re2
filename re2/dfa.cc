@@ -102,15 +102,13 @@ class DFA {
               bool want_earliest_match, bool run_forward, bool* failed,
               const char** ep, SparseSet* matches) {
     return Search(text, context, anchored, want_earliest_match, run_forward, failed, ep, matches,
-                  absl::optional<std::function<void(const char*)>>(),
-                  absl::optional<std::function<void(const char*)>>());
+                  EOMCallback(), SOMCallback());
   }
 
   bool Search(absl::string_view text, absl::string_view context, bool anchored,
               bool want_earliest_match, bool run_forward, bool* failed,
               const char** ep, SparseSet* matches,
-              absl::optional<std::function<void(const char*)>> eom_callback,
-              absl::optional<std::function<void(const char*)>> som_callback);
+              EOMCallback eom_callback, SOMCallback som_callback);
 
   // Builds out all states for the entire DFA.
   // If cb is not empty, it receives one callback per state built.
@@ -268,8 +266,7 @@ class DFA {
 
     SearchParams(absl::string_view text, absl::string_view context,
                  RWLocker* cache_lock,
-                 absl::optional<std::function<void(const char*)>> eom_callback,
-                 absl::optional<std::function<void(const char*)>> som_callback)
+                 EOMCallback eom_callback, SOMCallback som_callback)
       : text(text),
         context(context),
         anchored(false),
@@ -296,8 +293,8 @@ class DFA {
     const char* ep;  // "out" parameter: end pointer for match
     SparseSet* matches;
     // FIXME: templatize SearchParams so these can be inlined too!
-    absl::optional<std::function<void(const char *)>> eom_callback;
-    absl::optional<std::function<void(const char *)>> som_callback;
+    EOMCallback eom_callback;
+    SOMCallback som_callback;
 
     template <bool run_forward>
     inline void register_match_inline();
@@ -1817,8 +1814,8 @@ bool DFA::AnalyzeSearchHelper(SearchParams* params, StartInfo* info,
 bool DFA::Search(absl::string_view text, absl::string_view context,
                  bool anchored, bool want_earliest_match, bool run_forward,
                  bool* failed, const char** epp, SparseSet* matches,
-                 absl::optional<std::function<void(const char*)>> eom_callback,
-                 absl::optional<std::function<void(const char*)>> som_callback) {
+                 EOMCallback eom_callback,
+                 SOMCallback som_callback) {
   *epp = NULL;
   if (!ok()) {
     *failed = true;
@@ -1911,8 +1908,7 @@ void Prog::DeleteDFA(DFA* dfa) {
 bool Prog::SearchDFA(absl::string_view text, absl::string_view context,
                      Anchor anchor, MatchKind kind, absl::string_view* match0,
                      bool* failed, SparseSet* matches,
-                     absl::optional<std::function<void(const char*)>> eom_callback,
-                     absl::optional<std::function<void(const char*)>> som_callback) {
+                     EOMCallback eom_callback, SOMCallback som_callback) {
   *failed = false;
 
   if (context.data() == NULL)
