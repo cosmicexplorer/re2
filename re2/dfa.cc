@@ -62,9 +62,13 @@ void Prog::TESTING_ONLY_set_dfa_should_bail_when_slow(bool b) {
   dfa_should_bail_when_slow = b;
 }
 
-void test_match_callback(const char *eom_pos, bool run_forward) {
-  fprintf(stderr, "eom_pos = %p, run_forward = %b\n", eom_pos, run_forward);
-}
+// static void forward_match_callback(const char *eom_pos) {
+//   fprintf(stderr, "(forward) eom_pos = %p\n", eom_pos);
+// }
+
+// static void reverse_match_callback(const char* som_pos) {
+//   fprintf(stderr, "(reverse) som_pos = %p\n", som_pos);
+// }
 
 // Changing this to true compiles in prints that trace execution of the DFA.
 // Generates a lot of output -- only useful for debugging.
@@ -94,9 +98,19 @@ class DFA {
   //   returning the leftmost end of the match instead of the rightmost one.
   // If the DFA cannot complete the search (for example, if it is out of
   //   memory), it sets *failed and returns false.
+  inline bool Search(absl::string_view text, absl::string_view context, bool anchored,
+              bool want_earliest_match, bool run_forward, bool* failed,
+              const char** ep, SparseSet* matches) {
+    return Search(text, context, anchored, want_earliest_match, run_forward, failed, ep, matches,
+                  absl::optional<std::function<void(const char*)>>(),
+                  absl::optional<std::function<void(const char*)>>());
+  }
+
   bool Search(absl::string_view text, absl::string_view context, bool anchored,
               bool want_earliest_match, bool run_forward, bool* failed,
-              const char** ep, SparseSet* matches);
+              const char** ep, SparseSet* matches,
+              absl::optional<std::function<void(const char*)>> eom_callback,
+              absl::optional<std::function<void(const char*)>> som_callback);
 
   // Builds out all states for the entire DFA.
   // If cb is not empty, it receives one callback per state built.
@@ -249,7 +263,26 @@ class DFA {
         failed(false),
         ep(NULL),
         matches(NULL),
-        eom_callback(test_match_callback) {}
+        eom_callback(),
+        som_callback() {}
+
+    SearchParams(absl::string_view text, absl::string_view context,
+                 RWLocker* cache_lock,
+                 absl::optional<std::function<void(const char*)>> eom_callback,
+                 absl::optional<std::function<void(const char*)>> som_callback)
+      : text(text),
+        context(context),
+        anchored(false),
+        can_prefix_accel(false),
+        want_earliest_match(false),
+        run_forward(false),
+        start(NULL),
+        cache_lock(cache_lock),
+        failed(false),
+        ep(NULL),
+        matches(NULL),
+        eom_callback(std::move(eom_callback)),
+        som_callback(std::move(som_callback)) {}
 
     absl::string_view text;
     absl::string_view context;
@@ -262,8 +295,12 @@ class DFA {
     bool failed;     // "out" parameter: whether search gave up
     const char* ep;  // "out" parameter: end pointer for match
     SparseSet* matches;
-    absl::optional<std::function<void(const char *eom_pos, bool run_forward)>>
-        eom_callback;
+    // FIXME: templatize SearchParams so these can be inlined too!
+    absl::optional<std::function<void(const char *)>> eom_callback;
+    absl::optional<std::function<void(const char *)>> som_callback;
+
+    template <bool run_forward>
+    inline void register_match_inline();
 
    private:
     SearchParams(const SearchParams&) = delete;
@@ -1341,6 +1378,20 @@ DFA::State* DFA::StateSaver::Restore() {
 // When s->next[c]->IsMatch(), it means that there is a match ending just
 // *before* byte c.
 
+
+template <>
+inline void DFA::SearchParams::register_match_inline<true>() {
+  if (eom_callback)
+    (*eom_callback)(ep);
+}
+
+template <>
+inline void DFA::SearchParams::register_match_inline<false>() {
+  if (som_callback)
+    (*som_callback)(ep);
+}
+
+
 // The generic search loop.  Searches text for a match, returning
 // the pointer to the end of the chosen match, or NULL if no match.
 // The bools are equal to the same-named variables in params, but
@@ -1384,8 +1435,7 @@ inline bool DFA::InlinedSearchLoop(SearchParams* params) {
     }
     if (want_earliest_match) {
       params->ep = reinterpret_cast<const char*>(lastmatch);
-      if (params->eom_callback)
-        (*params->eom_callback)(params->ep, run_forward);
+      params->register_match_inline<run_forward>();
       return true;
     }
   }
@@ -1475,14 +1525,13 @@ inline bool DFA::InlinedSearchLoop(SearchParams* params) {
     if (ns <= SpecialStateMax) {
       if (ns == DeadState) {
         params->ep = reinterpret_cast<const char*>(lastmatch);
-        if (matched && params->eom_callback)
-          (*params->eom_callback)(params->ep, run_forward);
+        if (matched)
+          params->register_match_inline<run_forward>();
         return matched;
       }
       // FullMatchState
       params->ep = reinterpret_cast<const char*>(ep);
-      if (params->eom_callback)
-        (*params->eom_callback)(params->ep, run_forward);
+      params->register_match_inline<run_forward>();
       return true;
     }
 
@@ -1507,8 +1556,7 @@ inline bool DFA::InlinedSearchLoop(SearchParams* params) {
       }
       if (want_earliest_match) {
         params->ep = reinterpret_cast<const char*>(lastmatch);
-        if (params->eom_callback)
-          (*params->eom_callback)(params->ep, run_forward);
+        params->register_match_inline<run_forward>();
         return true;
       }
     }
@@ -1553,13 +1601,13 @@ inline bool DFA::InlinedSearchLoop(SearchParams* params) {
   if (ns <= SpecialStateMax) {
     if (ns == DeadState) {
       params->ep = reinterpret_cast<const char*>(lastmatch);
-      if (matched && params->eom_callback)
-        (*params->eom_callback)(params->ep, run_forward);
+      if (matched)
+        params->register_match_inline<run_forward>();
       return matched;
     }
     // FullMatchState
     params->ep = reinterpret_cast<const char*>(ep);
-    if (params->eom_callback) (*params->eom_callback)(params->ep, run_forward);
+    params->register_match_inline<run_forward>();
     return true;
   }
 
@@ -1580,8 +1628,8 @@ inline bool DFA::InlinedSearchLoop(SearchParams* params) {
   }
 
   params->ep = reinterpret_cast<const char*>(lastmatch);
-  if (matched && params->eom_callback)
-    (*params->eom_callback)(params->ep, run_forward);
+  if (matched)
+    params->register_match_inline<run_forward>();
   return matched;
 }
 
@@ -1768,7 +1816,9 @@ bool DFA::AnalyzeSearchHelper(SearchParams* params, StartInfo* info,
 // The actual DFA search: calls AnalyzeSearch and then FastSearchLoop.
 bool DFA::Search(absl::string_view text, absl::string_view context,
                  bool anchored, bool want_earliest_match, bool run_forward,
-                 bool* failed, const char** epp, SparseSet* matches) {
+                 bool* failed, const char** epp, SparseSet* matches,
+                 absl::optional<std::function<void(const char*)>> eom_callback,
+                 absl::optional<std::function<void(const char*)>> som_callback) {
   *epp = NULL;
   if (!ok()) {
     *failed = true;
@@ -1783,7 +1833,7 @@ bool DFA::Search(absl::string_view text, absl::string_view context,
   }
 
   RWLocker l(&cache_mutex_);
-  SearchParams params(text, context, &l);
+  SearchParams params(text, context, &l, eom_callback, som_callback);
   params.anchored = anchored;
   params.want_earliest_match = want_earliest_match;
   params.run_forward = run_forward;
@@ -1860,7 +1910,9 @@ void Prog::DeleteDFA(DFA* dfa) {
 //
 bool Prog::SearchDFA(absl::string_view text, absl::string_view context,
                      Anchor anchor, MatchKind kind, absl::string_view* match0,
-                     bool* failed, SparseSet* matches) {
+                     bool* failed, SparseSet* matches,
+                     absl::optional<std::function<void(const char*)>> eom_callback,
+                     absl::optional<std::function<void(const char*)>> som_callback) {
   *failed = false;
 
   if (context.data() == NULL)
@@ -1905,7 +1957,8 @@ bool Prog::SearchDFA(absl::string_view text, absl::string_view context,
   const char* ep;
   bool matched = dfa->Search(text, context, anchored,
                              want_earliest_match, !reversed_,
-                             failed, &ep, matches);
+                             failed, &ep, matches,
+                             eom_callback, som_callback);
   if (*failed) {
     hooks::GetDFASearchFailureHook()({
         // Nothing yet...

@@ -905,6 +905,255 @@ bool RE2::Match(absl::string_view text,
   return true;
 }
 
+bool RE2::MatchCallback(
+  absl::string_view text,
+  size_t startpos,
+  size_t endpos,
+  Anchor re_anchor,
+  absl::optional<std::function<void(const char*)>> eom_callback,
+  absl::optional<std::function<void(const char*)>> som_callback) const {
+  if (!ok()) {
+    if (options_.log_errors())
+      LOG(ERROR) << "Invalid RE2: " << *error_;
+    return false;
+  }
+
+  if (startpos > endpos || endpos > text.size()) {
+    if (options_.log_errors())
+      LOG(ERROR) << "RE2: invalid startpos, endpos pair. ["
+                 << "startpos: " << startpos << ", "
+                 << "endpos: " << endpos << ", "
+                 << "text size: " << text.size() << "]";
+    return false;
+  }
+
+  absl::string_view subtext = text;
+  subtext.remove_prefix(startpos);
+  subtext.remove_suffix(text.size() - endpos);
+
+  // Use DFAs to find exact location of match, filter out non-matches.
+
+  // Don't ask for the location if we won't use it.
+  // SearchDFA can do extra optimizations in that case.
+  absl::string_view match;
+  absl::string_view* matchp = &match;
+
+  const int nsubmatch = 0;
+  const int ncap = 0;
+
+  // If the regexp is anchored explicitly, must not be in middle of text.
+  if (prog_->anchor_start() && startpos != 0)
+    return false;
+  if (prog_->anchor_end() && endpos != text.size())
+    return false;
+
+  // If the regexp is anchored explicitly, update re_anchor
+  // so that we can potentially fall into a faster case below.
+  if (prog_->anchor_start() && prog_->anchor_end())
+    re_anchor = ANCHOR_BOTH;
+  else if (prog_->anchor_start() && re_anchor != ANCHOR_BOTH)
+    re_anchor = ANCHOR_START;
+
+  // Check for the required prefix, if any.
+  size_t prefixlen = 0;
+  if (!prefix_.empty()) {
+    if (startpos != 0)
+      return false;
+    prefixlen = prefix_.size();
+    if (prefixlen > subtext.size())
+      return false;
+    if (prefix_foldcase_) {
+      if (ascii_strcasecmp(&prefix_[0], subtext.data(), prefixlen) != 0)
+        return false;
+    } else {
+      if (memcmp(&prefix_[0], subtext.data(), prefixlen) != 0)
+        return false;
+    }
+    subtext.remove_prefix(prefixlen);
+    // If there is a required prefix, the anchor must be at least ANCHOR_START.
+    if (re_anchor != ANCHOR_BOTH)
+      re_anchor = ANCHOR_START;
+  }
+
+  Prog::Anchor anchor = Prog::kUnanchored;
+  Prog::MatchKind kind =
+      longest_match_ ? Prog::kLongestMatch : Prog::kFirstMatch;
+
+  bool can_one_pass = is_one_pass_ && ncap <= Prog::kMaxOnePassCapture;
+  bool can_bit_state = prog_->CanBitState();
+  size_t bit_state_text_max_size = prog_->bit_state_text_max_size();
+
+#ifdef RE2_HAVE_THREAD_LOCAL
+  hooks::context = this;
+#endif
+  bool dfa_failed = false;
+  bool skipped_test = false;
+  switch (re_anchor) {
+    default:
+      LOG(DFATAL) << "Unexpected re_anchor value: " << re_anchor;
+      return false;
+
+    case UNANCHORED: {
+      if (prog_->anchor_end()) {
+        // This is a very special case: we don't need the forward DFA because
+        // we already know where the match must end! Instead, the reverse DFA
+        // can say whether there is a match and (optionally) where it starts.
+        Prog* prog = ReverseProg();
+        if (prog == NULL) {
+          // Fall back to NFA below.
+          skipped_test = true;
+          break;
+        }
+        if (!prog->SearchDFA(subtext, text, Prog::kAnchored,
+                             Prog::kLongestMatch, matchp, &dfa_failed, NULL)) {
+          if (dfa_failed) {
+            if (options_.log_errors())
+              LOG(ERROR) << "DFA out of memory: "
+                         << "pattern length " << pattern_->size() << ", "
+                         << "program size " << prog->size() << ", "
+                         << "list count " << prog->list_count() << ", "
+                         << "bytemap range " << prog->bytemap_range();
+            // Fall back to NFA below.
+            skipped_test = true;
+            break;
+          }
+          return false;
+        }
+        if (matchp == NULL)  // Matched.  Don't care where.
+          return true;
+        break;
+      }
+
+      if (!prog_->SearchDFA(subtext, text, anchor, kind,
+                            matchp, &dfa_failed, NULL)) {
+        if (dfa_failed) {
+          if (options_.log_errors())
+            LOG(ERROR) << "DFA out of memory: "
+                       << "pattern length " << pattern_->size() << ", "
+                       << "program size " << prog_->size() << ", "
+                       << "list count " << prog_->list_count() << ", "
+                       << "bytemap range " << prog_->bytemap_range();
+          // Fall back to NFA below.
+          skipped_test = true;
+          break;
+        }
+        return false;
+      }
+      if (matchp == NULL)  // Matched.  Don't care where.
+        return true;
+      // SearchDFA set match.end() but didn't know where the
+      // match started.  Run the regexp backward from match.end()
+      // to find the longest possible match -- that's where it started.
+      Prog* prog = ReverseProg();
+      if (prog == NULL) {
+        // Fall back to NFA below.
+        skipped_test = true;
+        break;
+      }
+      if (!prog->SearchDFA(match, text, Prog::kAnchored,
+                           Prog::kLongestMatch, &match, &dfa_failed, NULL)) {
+        if (dfa_failed) {
+          if (options_.log_errors())
+            LOG(ERROR) << "DFA out of memory: "
+                       << "pattern length " << pattern_->size() << ", "
+                       << "program size " << prog->size() << ", "
+                       << "list count " << prog->list_count() << ", "
+                       << "bytemap range " << prog->bytemap_range();
+          // Fall back to NFA below.
+          skipped_test = true;
+          break;
+        }
+        if (options_.log_errors())
+          LOG(ERROR) << "SearchDFA inconsistency";
+        return false;
+      }
+      break;
+    }
+
+    case ANCHOR_BOTH:
+    case ANCHOR_START:
+      if (re_anchor == ANCHOR_BOTH)
+        kind = Prog::kFullMatch;
+      anchor = Prog::kAnchored;
+
+      // If only a small amount of text and need submatch
+      // information anyway and we're going to use OnePass or BitState
+      // to get it, we might as well not even bother with the DFA:
+      // OnePass or BitState will be fast enough.
+      // On tiny texts, OnePass outruns even the DFA, and
+      // it doesn't have the shared state and occasional mutex that
+      // the DFA does.
+      if (can_one_pass && text.size() <= 4096 &&
+          (ncap > 1 || text.size() <= 16)) {
+        skipped_test = true;
+        break;
+      }
+      if (can_bit_state && text.size() <= bit_state_text_max_size &&
+          ncap > 1) {
+        skipped_test = true;
+        break;
+      }
+      if (!prog_->SearchDFA(subtext, text, anchor, kind,
+                            &match, &dfa_failed, NULL)) {
+        if (dfa_failed) {
+          if (options_.log_errors())
+            LOG(ERROR) << "DFA out of memory: "
+                       << "pattern length " << pattern_->size() << ", "
+                       << "program size " << prog_->size() << ", "
+                       << "list count " << prog_->list_count() << ", "
+                       << "bytemap range " << prog_->bytemap_range();
+          // Fall back to NFA below.
+          skipped_test = true;
+          break;
+        }
+        return false;
+      }
+      break;
+  }
+
+  // absl::string_view subtext1;
+  // if (skipped_test) {
+  //   // DFA ran out of memory or was skipped:
+  //   // need to search in entire original text.
+  //   subtext1 = subtext;
+  // } else {
+  //   // DFA found the exact match location:
+  //   // let NFA run an anchored, full match search
+  //   // to find submatch locations.
+  //   subtext1 = match;
+  //   anchor = Prog::kAnchored;
+  //   kind = Prog::kFullMatch;
+  // }
+
+  // if (can_one_pass && anchor != Prog::kUnanchored) {
+  //   if (!prog_->SearchOnePass(subtext1, text, anchor, kind, submatch, ncap)) {
+  //     if (!skipped_test && options_.log_errors())
+  //       LOG(ERROR) << "SearchOnePass inconsistency";
+  //     return false;
+  //   }
+  // } else if (can_bit_state && subtext1.size() <= bit_state_text_max_size) {
+  //   if (!prog_->SearchBitState(subtext1, text, anchor,
+  //                              kind, submatch, ncap)) {
+  //     if (!skipped_test && options_.log_errors())
+  //       LOG(ERROR) << "SearchBitState inconsistency";
+  //     return false;
+  //   }
+  // } else {
+  //   if (!prog_->SearchNFA(subtext1, text, anchor, kind, submatch, ncap)) {
+  //     if (!skipped_test && options_.log_errors())
+  //       LOG(ERROR) << "SearchNFA inconsistency";
+  //     return false;
+  //   }
+  // }
+
+  // Adjust overall match for required prefix that we stripped off.
+  // if (prefixlen > 0 && nsubmatch > 0)
+  //   submatch[0] = absl::string_view(submatch[0].data() - prefixlen,
+  //                                   submatch[0].size() + prefixlen);
+
+  return true;
+}
+
 // Internal matcher - like Match() but takes Args not string_views.
 bool RE2::DoMatch(absl::string_view text,
                   Anchor re_anchor,

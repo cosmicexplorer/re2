@@ -587,6 +587,14 @@ class RE2 {
              absl::string_view* submatch,
              int nsubmatch) const;
 
+  // FIXME: inline the callbacks with templates!!!!
+  bool MatchCallback(absl::string_view text,
+                     size_t startpos,
+                     size_t endpos,
+                     Anchor re_anchor,
+                     absl::optional<std::function<void(const char*)>> eom_callback,
+                     absl::optional<std::function<void(const char*)>> som_callback) const;
+
   // Check that the given rewrite string is suitable for use with this
   // regular expression.  It checks that:
   //   * The regular expression has enough parenthesized subexpressions
