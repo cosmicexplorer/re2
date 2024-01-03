@@ -54,6 +54,21 @@ class Regexp;
 
 using EOMCallback = absl::optional<std::function<void(size_t)>>;
 using SOMCallback = absl::optional<std::function<void(size_t)>>;
+enum CallbackResult {
+  kContinue = 0,
+  kQuit = 1,
+};
+
+struct CallbackVtable {
+  CallbackResult (*match_end)(size_t eom);
+  CallbackResult (*match_full)(size_t som, size_t eom);
+  CallbackResult (*dfa_bailout)(
+    size_t pattern_length,
+    size_t program_size,
+    int list_count,
+    int bytemap_range,
+  );
+};
 
 // Compiled form of regexp program.
 class Prog {
