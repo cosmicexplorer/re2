@@ -16,6 +16,8 @@ option(RE2_USE_ICU "build against ICU for full Unicode properties support" OFF)
 # For historical reasons, this is just "USEPCRE", not "RE2_USE_PCRE".
 option(USEPCRE "build against PCRE for testing and benchmarking" OFF)
 
+option(RE2_USE_CPPCORO "build against cppcoro to provide a coroutine API" OFF)
+
 # See https://groups.google.com/g/re2-dev/c/P6_NM0YIWvA for details.
 # This has no effect unless RE2 is being built for an Apple platform
 # such as macOS or iOS.
@@ -93,6 +95,11 @@ endif()
 if(USEPCRE)
   add_definitions(-DUSEPCRE)
   list(APPEND EXTRA_TARGET_LINK_LIBRARIES pcre)
+endif()
+
+if(RE2_USE_CPPCORO)
+  add_definitions(-DRE2_USE_CPPCORO)
+  list(APPEND EXTRA_TARGET_LINK_LIBRARIES cppcoro)
 endif()
 
 list(JOIN REQUIRES " " REQUIRES)
