@@ -17,6 +17,13 @@ bazel_dep(name = "abseil-cpp", version = "20240116.2")
 bazel_dep(name = "rules_python", version = "0.32.2")
 bazel_dep(name = "pybind11_bazel", version = "2.12.0")
 
+bazel_dep(name = "mypy_integration", version = "0.4.0")
+git_override(
+    module_name = "mypy_integration",
+    remote = "https://github.com/bazel-contrib/bazel-mypy-integration",
+    commit = "86ffdeaa9c0e25a8b608f03c5aae666a5cdbadbc",
+)
+
 # This is a temporary hack for `x64_x86_windows`.
 # TODO(junyer): Remove whenever no longer needed.
 cc_configure = use_extension("@bazel_tools//tools/cpp:cc_configure.bzl", "cc_configure_extension")

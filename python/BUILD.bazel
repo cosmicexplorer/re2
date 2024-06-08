@@ -6,6 +6,7 @@
 
 load("@pybind11_bazel//:build_defs.bzl", "pybind_extension")
 load("@rules_python//python:defs.bzl", "py_library", "py_test")
+load("@mypy_integration//:mypy.bzl", "mypy_test")
 
 pybind_extension(
     name = "_re2",
@@ -16,10 +17,15 @@ pybind_extension(
     ],
 )
 
+filegroup(
+    name = "re2_types",
+    srcs = ["re2.pyi"],
+)
+
 py_library(
     name = "re2",
     srcs = ["re2.py"],
-    data = [":_re2"],
+    data = [":_re2", ":re2_types"],
     imports = ["."],
     visibility = ["//visibility:public"],
 )
@@ -32,6 +38,14 @@ py_test(
         ":re2",
         "@abseil-py//absl/testing:absltest",
         "@abseil-py//absl/testing:parameterized",
+    ],
+)
+
+mypy_test(
+    name = "re2_mypy",
+    deps = [
+        ":re2",
+        ":re2_test",
     ],
 )
 
