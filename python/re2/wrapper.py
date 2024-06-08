@@ -30,7 +30,7 @@ import codecs
 import functools
 import itertools
 
-import _re2
+from . import native as _re2
 
 
 # pybind11 translates C++ exceptions to Python exceptions.

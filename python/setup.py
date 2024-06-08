@@ -199,7 +199,6 @@ setuptools.setup(
     author='The RE2 Authors',
     author_email='re2-dev@googlegroups.com',
     url='https://github.com/google/re2',
-    py_modules=['re2'],
     ext_modules=[ext_module],
     classifiers=[
         'Development Status :: 5 - Production/Stable',
@@ -208,6 +207,7 @@ setuptools.setup(
         'Programming Language :: C++',
         'Programming Language :: Python :: 3.8',
     ],
+    packages=['re2'],
     options=options(),
     cmdclass={'build_ext': BuildExt},
     python_requires='~=3.8',

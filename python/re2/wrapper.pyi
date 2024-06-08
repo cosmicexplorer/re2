@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, ClassVar, Generic, Iterable, Iterator, Type, TypeVar, overload
 
-import _re2
+from . import native as _re2
 
 
 error = _re2.Error
