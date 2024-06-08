@@ -259,7 +259,7 @@ class _Match(Generic[_PatternType]):
     ...
 
   @overload
-  def group(self) -> _PatternType | None:
+  def group(self) -> _PatternType:
     ...
 
   @overload
